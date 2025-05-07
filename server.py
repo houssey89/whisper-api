@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from faster_whisper import WhisperModel
-import os  # ← nécessaire pour récupérer la variable d’environnement PORT
+import os
 
 app = Flask(__name__)
-model = WhisperModel("base")
+model = WhisperModel("tiny")  # modèle plus léger que "base"
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -17,6 +17,7 @@ def transcribe():
     return jsonify({"text": text})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))  # ← respecte la config Cloud Run
+    port = int(os.environ.get("PORT", 8080))  # Cloud Run impose le port d'écoute
     app.run(host="0.0.0.0", port=port)
+
 
