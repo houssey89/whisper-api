@@ -3,14 +3,12 @@ from faster_whisper import WhisperModel
 import requests
 import os
 
-# Initialisation de l'app Flask et du modèle de transcription Whisper
 app = Flask(__name__)
 model = WhisperModel("tiny")
 
-# Récupération de la clé API Google Translate depuis les variables d'environnement
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+SUPABASE_CHAT_URL = os.environ.get("SUPABASE_CHAT_URL")
 
-# Fonction de traduction via l'API Google Translate
 def traduire(text, from_lang, to_lang):
     if from_lang == to_lang or not text:
         return text
@@ -29,52 +27,54 @@ def traduire(text, from_lang, to_lang):
         if response.ok:
             return response.json()["data"]["translations"][0]["translatedText"]
         else:
-            return f"[Erreur de traduction: {response.status_code}]"
+            return f"[Erreur traduction: {response.status_code}]"
     except Exception as e:
-        return f"[Erreur: {str(e)}]"
+        return f"[Erreur traduction: {str(e)}]"
 
-# Route principale de transcription + traduction
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
-    print("🔔 Nouvelle requête transcribe reçue")
+    user_id = request.form.get('userId') or (request.json.get('userId') if request.is_json else None)
+    lat = request.form.get('lat') or (request.json.get('lat') if request.is_json else None)
+    lng = request.form.get('lng') or (request.json.get('lng') if request.is_json else None)
 
-    if 'file' not in request.files:
-        print("⚠️ Aucun fichier reçu dans la requête")
-        return jsonify({"error": "No file provided"}), 400
+    text = ""
+    lang_code = "fr"
 
-    audio_file = request.files['file']
+    # 🔊 Transcription audio
+    if 'file' in request.files:
+        audio_file = request.files['file']
+        segments, info = model.transcribe(audio_file)
+        text = " ".join([seg.text for seg in segments])
+        lang_code = info.language or "fr"
 
-    # Transcription avec Whisper
-    segments, info = model.transcribe(audio_file)
-    text = " ".join([seg.text for seg in segments])
-    lang_code = info.language or "fr"
-
-    print(f"🗣️ Langue détectée : {lang_code}")
-    print(f"📝 Transcription brute : {text}")
-
-    # Traduction vers le français si nécessaire
-    if lang_code != "fr":
-        texte_fr = traduire(text, from_lang=lang_code, to_lang="fr")
+    # 💬 Texte brut (ex: Voiceflow)
+    elif request.is_json:
+        body = request.get_json()
+        text = body.get("text", "")
+        lang_code = body.get("lang", "fr")  # si détecté côté client
     else:
-        texte_fr = text
+        return jsonify({"error": "Aucun fichier audio ou texte fourni"}), 400
 
-    print(f"🇫🇷 Texte traduit en français : {texte_fr}")
+    # 🇫🇷 Traduction
+    texte_fr = traduire(text, from_lang=lang_code, to_lang="fr") if lang_code != "fr" else text
 
-    # Traitement simulé
-    reponse_fr = "Le médicament est disponible à la pharmacie X."
+    # 🤖 Appel Supabase Function
+    try:
+        chat_payload = {
+            "text": texte_fr,
+            "userId": user_id,
+            "lat": float(lat) if lat else None,
+            "lng": float(lng) if lng else None
+        }
+        response = requests.post(SUPABASE_CHAT_URL, json=chat_payload)
+        if response.ok:
+            reponse_fr = response.json().get("answer", "Désolé, pas de réponse.")
+        else:
+            reponse_fr = "[Erreur fonction chat]"
+    except Exception as e:
+        reponse_fr = f"[Erreur API chat: {str(e)}]"
 
-    # Retraduction vers la langue d'origine
-    if lang_code != "fr":
-        reponse_finale = traduire(reponse_fr, from_lang="fr", to_lang=lang_code)
-    else:
-        reponse_finale = reponse_fr
-
-    print("📣 RESULTAT FINALE :", {
-        "langue_detectee": lang_code,
-        "transcription": text,
-        "texte_fr": texte_fr,
-        "reponse": reponse_finale
-    })
+    reponse_finale = traduire(reponse_fr, from_lang="fr", to_lang=lang_code) if lang_code != "fr" else reponse_fr
 
     return jsonify({
         "langue_detectee": lang_code,
@@ -83,7 +83,6 @@ def transcribe():
         "reponse": reponse_finale
     })
 
-# Démarrage du serveur Cloud Run
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
