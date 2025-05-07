@@ -36,7 +36,10 @@ def traduire(text, from_lang, to_lang):
 # Route principale de transcription + traduction
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
+    print("🔔 Nouvelle requête transcribe reçue")
+
     if 'file' not in request.files:
+        print("⚠️ Aucun fichier reçu dans la requête")
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files['file']
@@ -46,13 +49,18 @@ def transcribe():
     text = " ".join([seg.text for seg in segments])
     lang_code = info.language or "fr"
 
+    print(f"🗣️ Langue détectée : {lang_code}")
+    print(f"📝 Transcription brute : {text}")
+
     # Traduction vers le français si nécessaire
     if lang_code != "fr":
         texte_fr = traduire(text, from_lang=lang_code, to_lang="fr")
     else:
         texte_fr = text
 
-    # Traitement simulé : ici tu peux appeler ton backend ou Supabase
+    print(f"🇫🇷 Texte traduit en français : {texte_fr}")
+
+    # Traitement simulé
     reponse_fr = "Le médicament est disponible à la pharmacie X."
 
     # Retraduction vers la langue d'origine
@@ -60,6 +68,13 @@ def transcribe():
         reponse_finale = traduire(reponse_fr, from_lang="fr", to_lang=lang_code)
     else:
         reponse_finale = reponse_fr
+
+    print("📣 RESULTAT FINALE :", {
+        "langue_detectee": lang_code,
+        "transcription": text,
+        "texte_fr": texte_fr,
+        "reponse": reponse_finale
+    })
 
     return jsonify({
         "langue_detectee": lang_code,
