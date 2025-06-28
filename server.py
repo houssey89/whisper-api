@@ -1,6 +1,9 @@
 from flask import Flask, request, jsonify
 from faster_whisper import WhisperModel
 import requests
+from gtts import gTTS
+import base64
+from io import BytesIO
 import os
 
 app = Flask(__name__)
@@ -8,6 +11,7 @@ model = WhisperModel("tiny")
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 SUPABASE_CHAT_URL = os.environ.get("SUPABASE_CHAT_URL")
+JULES_API_URL = os.environ.get("JULES_API_URL", "https://api.jules.ai/chat")
 
 def traduire(text, from_lang, to_lang):
     if from_lang == to_lang or not text:
@@ -81,6 +85,46 @@ def transcribe():
         "transcription": text,
         "texte_fr": texte_fr,
         "reponse": reponse_finale
+    })
+
+
+@app.route("/transcribe_jules", methods=["POST"])
+def transcribe_jules():
+    """Transcrit l'audio, envoie la transcription à l'API Jules
+    puis renvoie la réponse et un audio TTS."""
+    text = ""
+
+    if 'file' in request.files:
+        audio_file = request.files['file']
+        segments, _ = model.transcribe(audio_file)
+        text = " ".join([seg.text for seg in segments])
+    elif request.is_json:
+        body = request.get_json()
+        text = body.get("text", "")
+    else:
+        return jsonify({"error": "Aucun fichier audio ou texte fourni"}), 400
+
+    try:
+        resp = requests.post(JULES_API_URL, json={"content": text})
+        resp.raise_for_status()
+        jules_answer = resp.json().get("answer") or resp.text
+    except Exception as e:
+        jules_answer = f"[Erreur API Jules: {e}]"
+
+    audio_b64 = None
+    try:
+        tts = gTTS(text=jules_answer, lang="fr")
+        buf = BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        audio_b64 = base64.b64encode(buf.read()).decode("utf-8")
+    except Exception as e:
+        jules_answer += f" [Erreur TTS: {e}]"
+
+    return jsonify({
+        "transcription": text,
+        "jules_reponse": jules_answer,
+        "audio_base64": audio_b64,
     })
 
 if __name__ == "__main__":
