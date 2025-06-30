@@ -5,3 +5,5 @@ gTTS
 
 torch
 soundfile
+Pillow
+transformers
